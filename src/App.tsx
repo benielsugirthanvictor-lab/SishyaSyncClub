@@ -1,66 +1,65 @@
-import { useState } from "react";
-
-// ──────────────────────────────────────────────
-// Types
-// ──────────────────────────────────────────────
-type Role = "student" | "teacher";
-type AssignmentType = "text" | "link";
-
-interface Assignment {
-  id: number;
-  title: string;
-  type: AssignmentType;
-  content: string;
-  subject: string;
-  postedBy: string;
-  postedAt: string;
-  dueDate: string;
-}
+import { useEffect, useState } from "react";
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut,
+  type User,
+} from "firebase/auth";
+import { auth, firebaseConfigured } from "./lib/firebase";
+import {
+  addAssignment,
+  addStudent,
+  createUserProfile,
+  deleteAssignment,
+  deleteStudent,
+  getUserProfile,
+  STUDENT_TYPES,
+  TEACHER_SIGNUP_CODE,
+  watchAssignments,
+  watchStudents,
+  type Assignment,
+  type Role,
+  type Student,
+  type StudentType,
+  type UserProfile,
+} from "./lib/db";
 
 type Page = "assignments" | "students" | "schedule" | "notices" | "profile";
 
-// ──────────────────────────────────────────────
-// Seed data
-// ──────────────────────────────────────────────
-const SEED_ASSIGNMENTS: Assignment[] = [
-  {
-    id: 1,
-    title: "Chapter 5 – Photosynthesis Summary",
-    type: "text",
-    content:
-      "Read Chapter 5 of your Biology textbook and write a 300-word summary on the light-dependent reactions of photosynthesis. Include a diagram if possible.",
-    subject: "Biology",
-    postedBy: "Mrs. Priya Sharma",
-    postedAt: "2026-08-12T09:30:00",
-    dueDate: "2026-08-19",
-  },
-  {
-    id: 2,
-    title: "Algebra Problem Set – Quadratic Equations",
-    type: "link",
-    content: "https://classroom.google.com/c/abc123/a/xyz456/details",
-    subject: "Mathematics",
-    postedBy: "Mr. Arjun Nair",
-    postedAt: "2026-08-13T11:00:00",
-    dueDate: "2026-08-20",
-  },
-];
-
-const TEACHER_CREDENTIALS = { email: "teacher@sishya.edu", password: "teach123" };
-const STUDENT_CREDENTIALS = { email: "student@sishya.edu", password: "study123" };
-
-const SUBJECT_COLORS: Record<string, string> = {
-  Biology: "bg-emerald-100 text-emerald-800",
-  Mathematics: "bg-violet-100 text-violet-800",
-  Physics: "bg-orange-100 text-orange-800",
-  Chemistry: "bg-rose-100 text-rose-800",
-  History: "bg-amber-100 text-amber-800",
-  English: "bg-sky-100 text-sky-800",
-  General: "bg-slate-100 text-slate-700",
+const STUDENT_TYPE_BADGES: Record<StudentType, string> = {
+  Intermediate: "bg-sky-100 text-sky-800",
+  Junior: "bg-amber-100 text-amber-800",
+  Senior: "bg-emerald-100 text-emerald-800",
 };
 
-function subjectColor(subject: string) {
-  return SUBJECT_COLORS[subject] ?? SUBJECT_COLORS["General"];
+function initials(name: string) {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase())
+    .join("");
+}
+
+function authErrorMessage(err: unknown): string {
+  const code = (err as { code?: string })?.code ?? "";
+  switch (code) {
+    case "auth/invalid-credential":
+    case "auth/wrong-password":
+    case "auth/user-not-found":
+      return "Invalid email or password.";
+    case "auth/email-already-in-use":
+      return "An account with this email already exists. Sign in instead.";
+    case "auth/weak-password":
+      return "Password should be at least 6 characters.";
+    case "auth/network-request-failed":
+      return "Network error. Check your connection and try again.";
+    case "auth/too-many-requests":
+      return "Too many attempts. Please try again later.";
+    default:
+      return (err as { message?: string })?.message ?? "Something went wrong. Please try again.";
+  }
 }
 
 function formatDate(iso: string) {
@@ -116,29 +115,49 @@ function Logo({ small }: { small?: boolean }) {
 }
 
 // ──────────────────────────────────────────────
-// Login Page
+// Login / Sign-up Page
 // ──────────────────────────────────────────────
-function LoginPage({ onLogin }: { onLogin: (role: Role) => void }) {
-  const [mode, setMode] = useState<Role>("student");
+function LoginPage() {
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [role, setRole] = useState<Role>("student");
+  const [teacherCode, setTeacherCode] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!auth) return;
     setError("");
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      const creds = mode === "teacher" ? TEACHER_CREDENTIALS : STUDENT_CREDENTIALS;
-      if (email === creds.email && password === creds.password) {
-        onLogin(mode);
+    try {
+      if (mode === "signup") {
+        if (!name.trim()) {
+          setError("Please enter your name.");
+          return;
+        }
+        if (role === "teacher" && teacherCode.trim() !== TEACHER_SIGNUP_CODE) {
+          setError("Invalid teacher signup code.");
+          return;
+        }
+        const cred = await createUserWithEmailAndPassword(auth, email, password);
+        await createUserProfile({
+          uid: cred.user.uid,
+          name: name.trim(),
+          email,
+          role,
+        });
       } else {
-        setError("Invalid credentials. Please try again.");
+        await signInWithEmailAndPassword(auth, email, password);
       }
-    }, 700);
+    } catch (err) {
+      setError(authErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -178,31 +197,30 @@ function LoginPage({ onLogin }: { onLogin: (role: Role) => void }) {
             <Logo />
           </div>
 
-          <h2 className="font-display text-3xl text-[#0f172a] mb-1">Welcome back</h2>
-          <p className="text-slate-500 mb-8">Sign in to your account to continue.</p>
-
-          {/* Role toggle */}
-          <div
-            className="flex rounded-xl p-1 mb-6"
-            style={{ background: "var(--secondary)" }}
-          >
-            {(["student", "teacher"] as Role[]).map((r) => (
-              <button
-                key={r}
-                onClick={() => { setMode(r); setEmail(""); setPassword(""); setShowPassword(false); setError(""); }}
-                className="flex-1 py-2 rounded-lg text-sm font-semibold transition-all duration-200 capitalize"
-                style={
-                  mode === r
-                    ? { background: "var(--primary)", color: "var(--primary-foreground)" }
-                    : { background: "transparent", color: "var(--muted-foreground)" }
-                }
-              >
-                {r === "student" ? " Student" : "📋 Teacher"}
-              </button>
-            ))}
-          </div>
+          <h2 className="font-display text-3xl text-[#0f172a] mb-1">
+            {mode === "signin" ? "Welcome back" : "Create your account"}
+          </h2>
+          <p className="text-slate-500 mb-8">
+            {mode === "signin" ? "Sign in to continue to your portal." : "Join Sishya Sync Club in a few seconds."}
+          </p>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            {mode === "signup" && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
+                <input
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Your name"
+                  className="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all"
+                  style={{ border: "1px solid var(--border)", background: "var(--card)" }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = "var(--accent)")}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+                />
+              </div>
+            )}
+
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
               <input
@@ -210,16 +228,14 @@ function LoginPage({ onLogin }: { onLogin: (role: Role) => void }) {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder={mode === "teacher" ? "teacher@sishya.edu" : "student@sishya.edu"}
+                placeholder="you@sishya.edu"
                 className="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all"
-                style={{
-                  border: "1px solid var(--border)",
-                  background: "var(--card)",
-                }}
+                style={{ border: "1px solid var(--border)", background: "var(--card)" }}
                 onFocus={(e) => (e.currentTarget.style.borderColor = "var(--accent)")}
                 onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
               />
             </div>
+
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
               <div className="relative">
@@ -230,10 +246,7 @@ function LoginPage({ onLogin }: { onLogin: (role: Role) => void }) {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   className="w-full px-4 py-3 pr-11 rounded-xl border text-sm outline-none transition-all"
-                  style={{
-                    border: "1px solid var(--border)",
-                    background: "var(--card)",
-                  }}
+                  style={{ border: "1px solid var(--border)", background: "var(--card)" }}
                   onFocus={(e) => (e.currentTarget.style.borderColor = "var(--accent)")}
                   onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
                 />
@@ -257,11 +270,52 @@ function LoginPage({ onLogin }: { onLogin: (role: Role) => void }) {
                 </button>
               </div>
             </div>
+
+            {mode === "signup" && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">I am a…</label>
+                <div className="flex gap-2">
+                  {(["student", "teacher"] as Role[]).map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setRole(r)}
+                      className="flex-1 py-2 rounded-xl text-sm font-semibold transition-all capitalize"
+                      style={
+                        role === r
+                          ? { background: "var(--primary)", color: "var(--primary-foreground)" }
+                          : { background: "var(--secondary)", color: "var(--secondary-foreground)" }
+                      }
+                    >
+                      {r === "student" ? " Student" : "📋 Teacher"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {mode === "signup" && role === "teacher" && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Teacher Signup Code</label>
+                <input
+                  required
+                  value={teacherCode}
+                  onChange={(e) => setTeacherCode(e.target.value)}
+                  placeholder="Enter the teacher code"
+                  className="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all"
+                  style={{ border: "1px solid var(--border)", background: "var(--card)" }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = "var(--accent)")}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+                />
+              </div>
+            )}
+
             {error && (
               <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 px-3 py-2 rounded-lg">
                 {error}
               </p>
             )}
+
             <button
               type="submit"
               disabled={loading}
@@ -278,16 +332,32 @@ function LoginPage({ onLogin }: { onLogin: (role: Role) => void }) {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
                   </svg>
-                  Signing in…
+                  {mode === "signin" ? "Signing in…" : "Creating account…"}
                 </>
+              ) : mode === "signin" ? (
+                "Sign in"
               ) : (
-                `Sign in as ${mode === "teacher" ? "Teacher" : "Student"}`
+                "Create account"
               )}
             </button>
           </form>
 
-          <p className="text-center text-xs text-slate-400 mt-6">
-            Demo — student@sishya.edu / study123 &nbsp;·&nbsp; teacher@sishya.edu / teach123
+          <p className="text-center text-sm text-slate-500 mt-6">
+            {mode === "signin" ? (
+              <>
+                Don't have an account?{" "}
+                <button onClick={() => { setMode("signup"); setError(""); }} className="font-semibold" style={{ color: "var(--accent)" }}>
+                  Sign up
+                </button>
+              </>
+            ) : (
+              <>
+                Already have an account?{" "}
+                <button onClick={() => { setMode("signin"); setError(""); }} className="font-semibold" style={{ color: "var(--accent)" }}>
+                  Sign in
+                </button>
+              </>
+            )}
           </p>
         </div>
       </div>
@@ -298,7 +368,7 @@ function LoginPage({ onLogin }: { onLogin: (role: Role) => void }) {
 // ──────────────────────────────────────────────
 // Sidebar
 // ──────────────────────────────────────────────
-const TEACHER_NAV: { id: Page; label: string; icon: JSX.Element }[] = [
+const NAV_ITEMS: { id: Page; label: string; icon: JSX.Element }[] = [
   {
     id: "assignments",
     label: "Assignments",
@@ -353,6 +423,7 @@ function Sidebar({
   onLogout,
   collapsed,
   onToggle,
+  onAddStudent,
 }: {
   role: Role;
   activePage: Page;
@@ -360,6 +431,7 @@ function Sidebar({
   onLogout: () => void;
   collapsed: boolean;
   onToggle: () => void;
+  onAddStudent?: () => void;
 }) {
   return (
     <aside
@@ -401,7 +473,7 @@ function Sidebar({
 
       {/* Nav */}
       <nav className="flex-1 px-2 py-2 flex flex-col gap-1 overflow-y-auto">
-        {TEACHER_NAV.map((item) => {
+        {NAV_ITEMS.map((item) => {
           const active = activePage === item.id;
           return (
             <button
@@ -426,6 +498,22 @@ function Sidebar({
             </button>
           );
         })}
+
+        {/* Add Student (teacher only) */}
+        {role === "teacher" && onAddStudent && (
+          <button
+            onClick={onAddStudent}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl mt-2 text-sm font-semibold text-white transition-all hover:opacity-90"
+            style={{ background: "linear-gradient(135deg, #0ea5e9, #1e3a5f)" }}
+          >
+            <span className="shrink-0">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+            </span>
+            {!collapsed && <span>Add Student</span>}
+          </button>
+        )}
       </nav>
 
       {/* Logout */}
@@ -449,7 +537,7 @@ function Sidebar({
 // ──────────────────────────────────────────────
 // Assignment Card
 // ──────────────────────────────────────────────
-function AssignmentCard({ a, canDelete, onDelete }: { a: Assignment; canDelete?: boolean; onDelete?: (id: number) => void }) {
+function AssignmentCard({ a, canDelete, onDelete }: { a: Assignment; canDelete?: boolean; onDelete?: (id: string) => void }) {
   return (
     <div
       className="rounded-2xl p-5 flex flex-col gap-3 transition-shadow hover:shadow-md"
@@ -514,8 +602,8 @@ function AssignmentCard({ a, canDelete, onDelete }: { a: Assignment; canDelete?:
 // ──────────────────────────────────────────────
 // Post Assignment Form (Teacher)
 // ──────────────────────────────────────────────
-function PostForm({ onPost }: { onPost: (a: Assignment) => void }) {
-  const [type, setType] = useState<AssignmentType>("text");
+function PostForm({ onPost, postedBy }: { onPost: (a: Omit<Assignment, "id">) => void; postedBy: string }) {
+  const [type, setType] = useState<"text" | "link">("text");
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [subject, setSubject] = useState("General");
@@ -526,17 +614,15 @@ function PostForm({ onPost }: { onPost: (a: Assignment) => void }) {
 
   function handlePost(e: React.FormEvent) {
     e.preventDefault();
-    const newAssignment: Assignment = {
-      id: Date.now(),
+    onPost({
       title,
       type,
       content,
       subject,
-      postedBy: "Mrs. Priya Sharma",
+      postedBy,
       postedAt: new Date().toISOString(),
       dueDate,
-    };
-    onPost(newAssignment);
+    });
     setTitle("");
     setContent("");
     setDueDate("");
@@ -552,7 +638,7 @@ function PostForm({ onPost }: { onPost: (a: Assignment) => void }) {
         <div>
           <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Assignment Type</label>
           <div className="flex gap-2">
-            {(["text", "link"] as AssignmentType[]).map((t) => (
+            {(["text", "link"] as ("text" | "link")[]).map((t) => (
               <button
                 key={t}
                 type="button"
@@ -668,6 +754,236 @@ function PostForm({ onPost }: { onPost: (a: Assignment) => void }) {
 }
 
 // ──────────────────────────────────────────────
+// Add Student Modal
+// ──────────────────────────────────────────────
+function AddStudentModal({
+  onClose,
+  onAdd,
+}: {
+  onClose: () => void;
+  onAdd: (data: { rollNo: string; name: string; type: StudentType }) => Promise<void>;
+}) {
+  const [rollNo, setRollNo] = useState("");
+  const [name, setName] = useState("");
+  const [type, setType] = useState<StudentType>("Intermediate");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    if (!rollNo.trim() || !name.trim()) {
+      setError("Roll number and name are required.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await onAdd({ rollNo: rollNo.trim(), name: name.trim(), type });
+      onClose();
+    } catch {
+      setError("Could not save the student. Please try again.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(15,23,42,0.5)" }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl p-6"
+        style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="font-display text-xl text-[#1e3a5f]">Add Student</h2>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
+            <input
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Student name"
+              className="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all"
+              style={{ border: "1px solid var(--border)", background: "var(--background)" }}
+              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--accent)")}
+              onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Roll Number</label>
+            <input
+              required
+              value={rollNo}
+              onChange={(e) => setRollNo(e.target.value)}
+              placeholder="e.g. 24"
+              className="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all"
+              style={{ border: "1px solid var(--border)", background: "var(--background)" }}
+              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--accent)")}
+              onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Type</label>
+            <div className="flex gap-2">
+              {STUDENT_TYPES.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setType(t)}
+                  className="flex-1 py-2 rounded-xl text-sm font-semibold transition-all"
+                  style={
+                    type === t
+                      ? { background: "var(--primary)", color: "white" }
+                      : { background: "var(--secondary)", color: "var(--secondary-foreground)" }
+                  }
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {error && (
+            <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 px-3 py-2 rounded-lg">
+              {error}
+            </p>
+          )}
+
+          <div className="flex gap-3 mt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-3 rounded-xl font-semibold text-sm transition-colors"
+              style={{ background: "var(--secondary)", color: "var(--secondary-foreground)" }}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={busy}
+              className="flex-1 py-3 rounded-xl font-semibold text-sm text-white transition-all hover:opacity-90 flex items-center justify-center gap-2"
+              style={{ background: busy ? "#94a3b8" : "var(--primary)", cursor: busy ? "not-allowed" : "pointer" }}
+            >
+              {busy ? "Saving…" : "Add Student"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Students Page (Teacher)
+// ──────────────────────────────────────────────
+function StudentsPage({
+  students,
+  onAddStudent,
+  onDeleteStudent,
+}: {
+  students: Student[];
+  onAddStudent: () => void;
+  onDeleteStudent: (id: string) => void;
+}) {
+  const [filter, setFilter] = useState<"All" | StudentType>("All");
+  const filtered = filter === "All" ? students : students.filter((s) => s.type === filter);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="font-semibold text-[#0f172a]">
+          All Students
+          <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
+            {students.length}
+          </span>
+        </h2>
+        <button
+          onClick={onAddStudent}
+          className="px-4 py-2 rounded-xl font-semibold text-sm text-white transition-all hover:opacity-90 flex items-center gap-2"
+          style={{ background: "var(--primary)" }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+          Add Student
+        </button>
+      </div>
+
+      <div className="flex gap-2 flex-wrap mb-5">
+        {(["All", ...STUDENT_TYPES] as ("All" | StudentType)[]).map((t) => (
+          <button
+            key={t}
+            onClick={() => setFilter(t)}
+            className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all"
+            style={
+              filter === t
+                ? { background: "var(--primary)", color: "white" }
+                : { background: "var(--secondary)", color: "var(--secondary-foreground)" }
+            }
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="rounded-2xl p-10 text-center text-slate-400" style={{ border: "2px dashed var(--border)" }}>
+          {filter === "All" ? "No students yet. Click “Add Student” to get started." : `No ${filter} students yet.`}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {filtered.map((s) => (
+            <div
+              key={s.id}
+              className="rounded-2xl p-4 flex items-center gap-4"
+              style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+            >
+              <div
+                className="w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm text-white shrink-0"
+                style={{ background: "var(--primary)" }}
+              >
+                {initials(s.name)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-[#0f172a] truncate">{s.name}</p>
+                <p className="text-xs text-slate-400">Roll No. {s.rollNo}</p>
+              </div>
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STUDENT_TYPE_BADGES[s.type]}`}>
+                {s.type}
+              </span>
+              <button
+                onClick={() => onDeleteStudent(s.id)}
+                className="text-slate-400 hover:text-rose-500 transition-colors shrink-0"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4h6v2" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
 // Placeholder pages
 // ──────────────────────────────────────────────
 function PlaceholderPage({ title, icon }: { title: string; icon: string }) {
@@ -683,14 +999,26 @@ function PlaceholderPage({ title, icon }: { title: string; icon: string }) {
 // ──────────────────────────────────────────────
 // Teacher Dashboard
 // ──────────────────────────────────────────────
-function TeacherDashboard({ assignments, onPost, onDelete, onLogout }: {
+function TeacherDashboard({
+  user,
+  assignments,
+  students,
+  onPost,
+  onDeleteAssignment,
+  onDeleteStudent,
+  onLogout,
+}: {
+  user: UserProfile;
   assignments: Assignment[];
-  onPost: (a: Assignment) => void;
-  onDelete: (id: number) => void;
+  students: Student[];
+  onPost: (a: Omit<Assignment, "id">) => void;
+  onDeleteAssignment: (id: string) => void;
+  onDeleteStudent: (id: string) => void;
   onLogout: () => void;
 }) {
   const [page, setPage] = useState<Page>("assignments");
   const [collapsed, setCollapsed] = useState(false);
+  const [showAddStudent, setShowAddStudent] = useState(false);
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: "var(--background)" }}>
@@ -701,6 +1029,7 @@ function TeacherDashboard({ assignments, onPost, onDelete, onLogout }: {
         onLogout={onLogout}
         collapsed={collapsed}
         onToggle={() => setCollapsed((c) => !c)}
+        onAddStudent={() => setShowAddStudent(true)}
       />
 
       <main className="flex-1 overflow-y-auto">
@@ -711,7 +1040,7 @@ function TeacherDashboard({ assignments, onPost, onDelete, onLogout }: {
         >
           <div>
             <h1 className="font-display text-xl text-[#1e3a5f]">
-              {TEACHER_NAV.find((n) => n.id === page)?.label}
+              {NAV_ITEMS.find((n) => n.id === page)?.label}
             </h1>
             <p className="text-xs text-slate-400">
               {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
@@ -719,11 +1048,11 @@ function TeacherDashboard({ assignments, onPost, onDelete, onLogout }: {
           </div>
           <div className="flex items-center gap-3">
             <div className="text-right hidden sm:block">
-              <p className="text-sm font-semibold text-[#0f172a]">Mrs. Priya Sharma</p>
-              <p className="text-xs text-slate-400">Biology · Sishya Sync Club</p>
+              <p className="text-sm font-semibold text-[#0f172a]">{user.name}</p>
+              <p className="text-xs text-slate-400">Teacher · Sishya Sync Club</p>
             </div>
             <div className="w-9 h-9 rounded-full flex items-center justify-center font-semibold text-sm text-white" style={{ background: "var(--primary)" }}>
-              PS
+              {initials(user.name) || "T"}
             </div>
           </div>
         </div>
@@ -748,23 +1077,31 @@ function TeacherDashboard({ assignments, onPost, onDelete, onLogout }: {
                 ) : (
                   <div className="flex flex-col gap-3">
                     {assignments.map((a) => (
-                      <AssignmentCard key={a.id} a={a} canDelete onDelete={onDelete} />
+                      <AssignmentCard key={a.id} a={a} canDelete onDelete={onDeleteAssignment} />
                     ))}
                   </div>
                 )}
               </div>
               {/* Right: post form */}
               <div>
-                <PostForm onPost={onPost} />
+                <PostForm onPost={onPost} postedBy={user.name} />
               </div>
             </div>
           )}
-          {page === "students" && <PlaceholderPage title="Students" icon="👥" />}
+          {page === "students" && (
+            <StudentsPage
+              students={students}
+              onAddStudent={() => setShowAddStudent(true)}
+              onDeleteStudent={onDeleteStudent}
+            />
+          )}
           {page === "schedule" && <PlaceholderPage title="Schedule" icon="📅" />}
           {page === "notices" && <PlaceholderPage title="Notices" icon="🔔" />}
           {page === "profile" && <PlaceholderPage title="Profile" icon="👤" />}
         </div>
       </main>
+
+      {showAddStudent && <AddStudentModal onClose={() => setShowAddStudent(false)} onAdd={addStudent} />}
     </div>
   );
 }
@@ -772,7 +1109,8 @@ function TeacherDashboard({ assignments, onPost, onDelete, onLogout }: {
 // ──────────────────────────────────────────────
 // Student Dashboard
 // ──────────────────────────────────────────────
-function StudentDashboard({ assignments, onLogout }: {
+function StudentDashboard({ user, assignments, onLogout }: {
+  user: UserProfile;
   assignments: Assignment[];
   onLogout: () => void;
 }) {
@@ -802,7 +1140,7 @@ function StudentDashboard({ assignments, onLogout }: {
         >
           <div>
             <h1 className="font-display text-xl text-[#1e3a5f]">
-              {TEACHER_NAV.find((n) => n.id === page)?.label}
+              {NAV_ITEMS.find((n) => n.id === page)?.label}
             </h1>
             <p className="text-xs text-slate-400">
               {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
@@ -810,11 +1148,11 @@ function StudentDashboard({ assignments, onLogout }: {
           </div>
           <div className="flex items-center gap-3">
             <div className="text-right hidden sm:block">
-              <p className="text-sm font-semibold text-[#0f172a]">Aditya Rajan</p>
-              <p className="text-xs text-slate-400">Grade 10-B · Roll No. 24</p>
+              <p className="text-sm font-semibold text-[#0f172a]">{user.name}</p>
+              <p className="text-xs text-slate-400">Student · Sishya Sync Club</p>
             </div>
             <div className="w-9 h-9 rounded-full flex items-center justify-center font-semibold text-sm text-white" style={{ background: "#0ea5e9" }}>
-              AR
+              {initials(user.name) || "S"}
             </div>
           </div>
         </div>
@@ -882,39 +1220,186 @@ function StudentDashboard({ assignments, onLogout }: {
 }
 
 // ──────────────────────────────────────────────
+// Loading / Setup screens
+// ──────────────────────────────────────────────
+function LoadingPage() {
+  return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--background)" }}>
+      <svg className="animate-spin w-8 h-8" viewBox="0 0 24 24" fill="none">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+        <path className="opacity-75" fill="#1e3a5f" d="M4 12a8 8 0 018-8v8z" />
+      </svg>
+    </div>
+  );
+}
+
+function SetupNeededPage() {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center gap-4 p-8 text-center" style={{ background: "var(--background)" }}>
+      <span className="text-5xl">🔥</span>
+      <h1 className="font-display text-2xl text-[#1e3a5f]">Firebase isn't configured yet</h1>
+      <p className="text-sm text-slate-500 max-w-md">
+        Create a Firebase project, enable Firestore + Email/Password auth, add a web app, and set the{" "}
+        <code className="px-1 py-0.5 rounded bg-slate-100 text-slate-700">VITE_FIREBASE_*</code> environment
+        variables, then redeploy.
+      </p>
+    </div>
+  );
+}
+
+function RoleMissingPage({ onLogout }: { onLogout: () => void }) {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center gap-4 p-8 text-center" style={{ background: "var(--background)" }}>
+      <span className="text-5xl">🤔</span>
+      <h1 className="font-display text-2xl text-[#1e3a5f]">Account not configured</h1>
+      <p className="text-sm text-slate-500 max-w-md">
+        Your account has no portal role yet. Please sign up again from the login page, or contact your teacher.
+      </p>
+      <button
+        onClick={onLogout}
+        className="px-6 py-3 rounded-xl font-semibold text-sm text-white transition-all hover:opacity-90"
+        style={{ background: "var(--primary)" }}
+      >
+        Sign out
+      </button>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Subject colors
+// ──────────────────────────────────────────────
+const SUBJECT_COLORS: Record<string, string> = {
+  Biology: "bg-emerald-100 text-emerald-800",
+  Mathematics: "bg-violet-100 text-violet-800",
+  Physics: "bg-orange-100 text-orange-800",
+  Chemistry: "bg-rose-100 text-rose-800",
+  History: "bg-amber-100 text-amber-800",
+  English: "bg-sky-100 text-sky-800",
+  General: "bg-slate-100 text-slate-700",
+};
+
+function subjectColor(subject: string) {
+  return SUBJECT_COLORS[subject] ?? SUBJECT_COLORS["General"];
+}
+
+// ──────────────────────────────────────────────
 // Root
 // ──────────────────────────────────────────────
 export default function App() {
-  const [role, setRole] = useState<Role | null>(null);
-  const [assignments, setAssignments] = useState<Assignment[]>(SEED_ASSIGNMENTS);
+  const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [roleLoading, setRoleLoading] = useState(false);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
 
-  function handlePost(a: Assignment) {
-    setAssignments((prev) => [a, ...prev]);
+  useEffect(() => {
+    if (!auth) return;
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setAuthReady(true);
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setProfile(null);
+      return;
+    }
+    let active = true;
+    setRoleLoading(true);
+    getUserProfile(user.uid)
+      .then((p) => {
+        if (!active) return;
+        setProfile(p);
+        setRoleLoading(false);
+      })
+      .catch(() => {
+        if (active) setRoleLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (!profile) return;
+    const unsubStudents = watchStudents(setStudents);
+    const unsubAssignments = watchAssignments(setAssignments);
+    return () => {
+      unsubStudents();
+      unsubAssignments();
+    };
+  }, [profile]);
+
+  async function handlePost(a: Omit<Assignment, "id">) {
+    try {
+      await addAssignment(a);
+    } catch (err) {
+      console.error(err);
+      alert("Could not post the assignment. Please try again.");
+    }
   }
 
-  function handleDelete(id: number) {
-    setAssignments((prev) => prev.filter((a) => a.id !== id));
+  async function handleDeleteAssignment(id: string) {
+    try {
+      await deleteAssignment(id);
+    } catch (err) {
+      console.error(err);
+      alert("Could not delete the assignment. Please try again.");
+    }
   }
 
-  if (!role) {
-    return <LoginPage onLogin={setRole} />;
+  async function handleDeleteStudent(id: string) {
+    try {
+      await deleteStudent(id);
+    } catch (err) {
+      console.error(err);
+      alert("Could not delete the student. Please try again.");
+    }
   }
 
-  if (role === "teacher") {
+  async function handleLogout() {
+    if (auth) await signOut(auth);
+  }
+
+  if (!firebaseConfigured) {
+    return <SetupNeededPage />;
+  }
+
+  if (!authReady || roleLoading) {
+    return <LoadingPage />;
+  }
+
+  if (!user) {
+    return <LoginPage />;
+  }
+
+  if (!profile) {
+    return <RoleMissingPage onLogout={handleLogout} />;
+  }
+
+  if (profile.role === "teacher") {
     return (
       <TeacherDashboard
+        user={profile}
         assignments={assignments}
+        students={students}
         onPost={handlePost}
-        onDelete={handleDelete}
-        onLogout={() => setRole(null)}
+        onDeleteAssignment={handleDeleteAssignment}
+        onDeleteStudent={handleDeleteStudent}
+        onLogout={handleLogout}
       />
     );
   }
 
   return (
     <StudentDashboard
+      user={profile}
       assignments={assignments}
-      onLogout={() => setRole(null)}
+      onLogout={handleLogout}
     />
   );
 }
