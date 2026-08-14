@@ -31,5 +31,9 @@ The app uses Firebase (Auth + Firestore) for accounts and data storage.
 4. Add a **Web app** and copy its config into the `VITE_FIREBASE_*` environment variables (see `.env.example`).
 5. Paste the rules from `firestore.rules` into **Firestore Database → Rules**.
 6. Set the same `VITE_FIREBASE_*` variables in the Vercel project (Settings → Environment Variables) and redeploy.
+7. Create the teacher's login account. Either open a browser console on `identitytoolkit` and run `accounts:signUp` with `email: iamteacher@krishna.com`, `password: teacher@123`, and the `VITE_FIREBASE_API_KEY`, then add a matching `users/{uid}` doc with `role: "teacher"`; or log in as a student and use the app. Contact the repo owner for the exact steps.
 
-Teacher accounts require the teacher signup code on the sign-up form (see `src/lib/db.ts`).
+## Accounts
+
+- The default teacher login is `iamteacher@krishna.com` / `teacher@123` (change the password after first sign-in).
+- There is no public sign-up form. Teachers create student accounts (username + password) from **Students → Add Student**. Students sign in with their username (or `username@sishya.edu`).

@@ -9,13 +9,14 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
     }
 
-    // Users can only read/update their own profile, and can never change their role.
+    // Users can read/update their own profile, and can never change their role.
+    // Teachers may create and delete student profiles (used by "Add Student").
     match /users/{uid} {
       allow read: if request.auth != null && request.auth.uid == uid;
-      allow create: if request.auth != null && request.auth.uid == uid;
+      allow create: if (request.auth != null && request.auth.uid == uid) || isTeacher();
       allow update: if request.auth != null && request.auth.uid == uid &&
         request.resource.data.role == resource.data.role;
-      allow delete: if false;
+      allow delete: if isTeacher();
     }
 
     // Any signed-in user can view students; only teachers can add/delete them.

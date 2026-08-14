@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  createUserWithEmailAndPassword,
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signOut,
@@ -9,13 +8,12 @@ import {
 import { auth, firebaseConfigured } from "./lib/firebase";
 import {
   addAssignment,
-  addStudent,
-  createUserProfile,
+  createStudentAccount,
   deleteAssignment,
   deleteStudent,
   getUserProfile,
+  resolveLoginIdentifier,
   STUDENT_TYPES,
-  TEACHER_SIGNUP_CODE,
   watchAssignments,
   watchStudents,
   type Assignment,
@@ -118,12 +116,8 @@ function Logo({ small }: { small?: boolean }) {
 // Login / Sign-up Page
 // ──────────────────────────────────────────────
 function LoginPage() {
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<Role>("student");
-  const [teacherCode, setTeacherCode] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -134,25 +128,7 @@ function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      if (mode === "signup") {
-        if (!name.trim()) {
-          setError("Please enter your name.");
-          return;
-        }
-        if (role === "teacher" && teacherCode.trim() !== TEACHER_SIGNUP_CODE) {
-          setError("Invalid teacher signup code.");
-          return;
-        }
-        const cred = await createUserWithEmailAndPassword(auth, email, password);
-        await createUserProfile({
-          uid: cred.user.uid,
-          name: name.trim(),
-          email,
-          role,
-        });
-      } else {
-        await signInWithEmailAndPassword(auth, email, password);
-      }
+      await signInWithEmailAndPassword(auth, resolveLoginIdentifier(login), password);
     } catch (err) {
       setError(authErrorMessage(err));
     } finally {
@@ -197,38 +173,17 @@ function LoginPage() {
             <Logo />
           </div>
 
-          <h2 className="font-display text-3xl text-[#0f172a] mb-1">
-            {mode === "signin" ? "Welcome back" : "Create your account"}
-          </h2>
-          <p className="text-slate-500 mb-8">
-            {mode === "signin" ? "Sign in to continue to your portal." : "Join Sishya Sync Club in a few seconds."}
-          </p>
+          <h2 className="font-display text-3xl text-[#0f172a] mb-1">Welcome back</h2>
+          <p className="text-slate-500 mb-8">Sign in to continue to your portal.</p>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            {mode === "signup" && (
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
-                <input
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Your name"
-                  className="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all"
-                  style={{ border: "1px solid var(--border)", background: "var(--card)" }}
-                  onFocus={(e) => (e.currentTarget.style.borderColor = "var(--accent)")}
-                  onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-                />
-              </div>
-            )}
-
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Username or Email</label>
               <input
-                type="email"
                 required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@sishya.edu"
+                value={login}
+                onChange={(e) => setLogin(e.target.value)}
+                placeholder="username or you@email.com"
                 className="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all"
                 style={{ border: "1px solid var(--border)", background: "var(--card)" }}
                 onFocus={(e) => (e.currentTarget.style.borderColor = "var(--accent)")}
@@ -271,45 +226,6 @@ function LoginPage() {
               </div>
             </div>
 
-            {mode === "signup" && (
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">I am a…</label>
-                <div className="flex gap-2">
-                  {(["student", "teacher"] as Role[]).map((r) => (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={() => setRole(r)}
-                      className="flex-1 py-2 rounded-xl text-sm font-semibold transition-all capitalize"
-                      style={
-                        role === r
-                          ? { background: "var(--primary)", color: "var(--primary-foreground)" }
-                          : { background: "var(--secondary)", color: "var(--secondary-foreground)" }
-                      }
-                    >
-                      {r === "student" ? " Student" : "📋 Teacher"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {mode === "signup" && role === "teacher" && (
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Teacher Signup Code</label>
-                <input
-                  required
-                  value={teacherCode}
-                  onChange={(e) => setTeacherCode(e.target.value)}
-                  placeholder="Enter the teacher code"
-                  className="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all"
-                  style={{ border: "1px solid var(--border)", background: "var(--card)" }}
-                  onFocus={(e) => (e.currentTarget.style.borderColor = "var(--accent)")}
-                  onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-                />
-              </div>
-            )}
-
             {error && (
               <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 px-3 py-2 rounded-lg">
                 {error}
@@ -332,32 +248,16 @@ function LoginPage() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
                   </svg>
-                  {mode === "signin" ? "Signing in…" : "Creating account…"}
+                  Signing in…
                 </>
-              ) : mode === "signin" ? (
-                "Sign in"
               ) : (
-                "Create account"
+                "Sign in"
               )}
             </button>
           </form>
 
           <p className="text-center text-sm text-slate-500 mt-6">
-            {mode === "signin" ? (
-              <>
-                Don't have an account?{" "}
-                <button onClick={() => { setMode("signup"); setError(""); }} className="font-semibold" style={{ color: "var(--accent)" }}>
-                  Sign up
-                </button>
-              </>
-            ) : (
-              <>
-                Already have an account?{" "}
-                <button onClick={() => { setMode("signin"); setError(""); }} className="font-semibold" style={{ color: "var(--accent)" }}>
-                  Sign in
-                </button>
-              </>
-            )}
+            Accounts are created by your teacher or administrator.
           </p>
         </div>
       </div>
@@ -368,7 +268,7 @@ function LoginPage() {
 // ──────────────────────────────────────────────
 // Sidebar
 // ──────────────────────────────────────────────
-const NAV_ITEMS: { id: Page; label: string; icon: JSX.Element }[] = [
+const NAV_ITEMS: { id: Page; label: string; icon: React.ReactElement }[] = [
   {
     id: "assignments",
     label: "Assignments",
@@ -761,10 +661,12 @@ function AddStudentModal({
   onAdd,
 }: {
   onClose: () => void;
-  onAdd: (data: { rollNo: string; name: string; type: StudentType }) => Promise<void>;
+  onAdd: (data: { rollNo: string; name: string; type: StudentType; username: string; password: string }) => Promise<void>;
 }) {
   const [rollNo, setRollNo] = useState("");
   const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [type, setType] = useState<StudentType>("Intermediate");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -772,16 +674,24 @@ function AddStudentModal({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (!rollNo.trim() || !name.trim()) {
-      setError("Roll number and name are required.");
+    if (!rollNo.trim() || !name.trim() || !username.trim() || !password) {
+      setError("All fields are required.");
+      return;
+    }
+    if (!/^[a-zA-Z0-9._-]+$/.test(username.trim())) {
+      setError("Username can only contain letters, numbers, dots, dashes, and underscores.");
+      return;
+    }
+    if (password.length < 6) {
+      setError("Password should be at least 6 characters.");
       return;
     }
     setBusy(true);
     try {
-      await onAdd({ rollNo: rollNo.trim(), name: name.trim(), type });
+      await onAdd({ rollNo: rollNo.trim(), name: name.trim(), type, username: username.trim(), password });
       onClose();
-    } catch {
-      setError("Could not save the student. Please try again.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save the student. Please try again.");
       setBusy(false);
     }
   }
@@ -831,6 +741,36 @@ function AddStudentModal({
               value={rollNo}
               onChange={(e) => setRollNo(e.target.value)}
               placeholder="e.g. 24"
+              className="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all"
+              style={{ border: "1px solid var(--border)", background: "var(--background)" }}
+              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--accent)")}
+              onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Username</label>
+            <input
+              required
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="e.g. sarah.k"
+              className="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all"
+              style={{ border: "1px solid var(--border)", background: "var(--background)" }}
+              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--accent)")}
+              onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+            />
+            <p className="text-xs text-slate-400 mt-1">Students sign in with this username or {username.trim() || "user"}@sishya.edu</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
+            <input
+              required
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="At least 6 characters"
               className="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all"
               style={{ border: "1px solid var(--border)", background: "var(--background)" }}
               onFocus={(e) => (e.currentTarget.style.borderColor = "var(--accent)")}
@@ -899,7 +839,7 @@ function StudentsPage({
 }: {
   students: Student[];
   onAddStudent: () => void;
-  onDeleteStudent: (id: string) => void;
+  onDeleteStudent: (id: string, uid?: string) => void;
 }) {
   const [filter, setFilter] = useState<"All" | StudentType>("All");
   const filtered = filter === "All" ? students : students.filter((s) => s.type === filter);
@@ -962,13 +902,16 @@ function StudentsPage({
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-[#0f172a] truncate">{s.name}</p>
-                <p className="text-xs text-slate-400">Roll No. {s.rollNo}</p>
+                <p className="text-xs text-slate-400">
+                  Roll No. {s.rollNo}
+                  {s.username ? <span className="text-slate-500"> · @{s.username}</span> : null}
+                </p>
               </div>
               <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STUDENT_TYPE_BADGES[s.type]}`}>
                 {s.type}
               </span>
               <button
-                onClick={() => onDeleteStudent(s.id)}
+                onClick={() => onDeleteStudent(s.id, s.uid)}
                 className="text-slate-400 hover:text-rose-500 transition-colors shrink-0"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1013,7 +956,7 @@ function TeacherDashboard({
   students: Student[];
   onPost: (a: Omit<Assignment, "id">) => void;
   onDeleteAssignment: (id: string) => void;
-  onDeleteStudent: (id: string) => void;
+  onDeleteStudent: (id: string, uid?: string) => void;
   onLogout: () => void;
 }) {
   const [page, setPage] = useState<Page>("assignments");
@@ -1101,7 +1044,7 @@ function TeacherDashboard({
         </div>
       </main>
 
-      {showAddStudent && <AddStudentModal onClose={() => setShowAddStudent(false)} onAdd={addStudent} />}
+      {showAddStudent && <AddStudentModal onClose={() => setShowAddStudent(false)} onAdd={createStudentAccount} />}
     </div>
   );
 }
@@ -1253,7 +1196,7 @@ function RoleMissingPage({ onLogout }: { onLogout: () => void }) {
       <span className="text-5xl">🤔</span>
       <h1 className="font-display text-2xl text-[#1e3a5f]">Account not configured</h1>
       <p className="text-sm text-slate-500 max-w-md">
-        Your account has no portal role yet. Please sign up again from the login page, or contact your teacher.
+        Your account has no portal role yet. Please contact your teacher or administrator.
       </p>
       <button
         onClick={onLogout}
@@ -1352,9 +1295,9 @@ export default function App() {
     }
   }
 
-  async function handleDeleteStudent(id: string) {
+  async function handleDeleteStudent(id: string, uid?: string) {
     try {
-      await deleteStudent(id);
+      await deleteStudent(id, uid);
     } catch (err) {
       console.error(err);
       alert("Could not delete the student. Please try again.");

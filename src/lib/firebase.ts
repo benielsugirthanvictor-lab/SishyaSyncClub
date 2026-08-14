@@ -15,6 +15,8 @@ export const firebaseConfigured = Boolean(
   firebaseConfig.apiKey && firebaseConfig.authDomain && firebaseConfig.projectId && firebaseConfig.appId,
 );
 
+export const firebaseApiKey = firebaseConfig.apiKey as string | undefined;
+
 export const app: FirebaseApp | null = firebaseConfigured ? initializeApp(firebaseConfig) : null;
 export const auth: Auth | null = app ? getAuth(app) : null;
 export const db: Firestore | null = app ? getFirestore(app) : null;
