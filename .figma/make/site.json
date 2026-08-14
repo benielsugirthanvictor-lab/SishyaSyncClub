@@ -1,0 +1,10 @@
+{
+  "description": "Facilitating seamless communication between teachers and students, this platform allows teachers to post assignments and students to access them easily.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
