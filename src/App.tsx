@@ -23,7 +23,7 @@ import {
   type UserProfile,
 } from "./lib/db";
 
-type Page = "assignments" | "students" | "schedule" | "notices" | "profile";
+type Page = "home" | "assignments" | "students" | "schedule" | "notices" | "profile";
 
 const STUDENT_TYPE_BADGES: Record<StudentType, string> = {
   Intermediate: "bg-sky-100 text-sky-800",
@@ -270,6 +270,15 @@ function LoginPage() {
 // ──────────────────────────────────────────────
 const NAV_ITEMS: { id: Page; label: string; icon: React.ReactElement }[] = [
   {
+    id: "home",
+    label: "Home",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" />
+      </svg>
+    ),
+  },
+  {
     id: "assignments",
     label: "Assignments",
     icon: (
@@ -373,7 +382,7 @@ function Sidebar({
 
       {/* Nav */}
       <nav className="flex-1 px-2 py-2 flex flex-col gap-1 overflow-y-auto">
-        {NAV_ITEMS.map((item) => {
+        {NAV_ITEMS.filter((item) => role !== "teacher" || item.id !== "home").map((item) => {
           const active = activePage === item.id;
           return (
             <button
@@ -1050,6 +1059,98 @@ function TeacherDashboard({
 }
 
 // ──────────────────────────────────────────────
+// Student Home Dashboard
+// ──────────────────────────────────────────────
+function StudentHome({ user, assignments, onNavigate }: {
+  user: UserProfile;
+  assignments: Assignment[];
+  onNavigate: (p: Page) => void;
+}) {
+  const thisWeek = assignments.filter((a) => Date.now() - new Date(a.postedAt).getTime() < 7 * 86400000);
+  const recent = [...assignments].sort((a, b) => new Date(b.postedAt).getTime() - new Date(a.postedAt).getTime()).slice(0, 5);
+
+  const stats = [
+    { label: "Total Assignments", value: assignments.length, color: "#1e3a5f" },
+    { label: "This Week", value: thisWeek.length, color: "#0ea5e9" },
+    { label: "Links", value: assignments.filter((a) => a.type === "link").length, color: "#7c3aed" },
+    { label: "Text", value: assignments.filter((a) => a.type === "text").length, color: "#059669" },
+  ];
+
+  const quickLinks: { label: string; icon: string; page: Page }[] = [
+    { label: "All Assignments", icon: "📚", page: "assignments" },
+    { label: "Schedule", icon: "📅", page: "schedule" },
+    { label: "Notices", icon: "🔔", page: "notices" },
+    { label: "Profile", icon: "👤", page: "profile" },
+  ];
+
+  return (
+    <div>
+      {/* Welcome banner */}
+      <div className="rounded-2xl px-6 py-5 mb-6" style={{ background: "linear-gradient(135deg, #0f2344 0%, #1e3a5f 60%, #0ea5e9 100%)" }}>
+        <p className="text-slate-300 text-sm">Welcome back,</p>
+        <h2 className="font-display text-2xl text-white mt-1">{user.name}</h2>
+        <p className="text-slate-300 text-sm mt-1">
+          {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+        </p>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        {stats.map((s) => (
+          <div key={s.label} className="rounded-2xl px-4 py-3" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+            <p className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</p>
+            <p className="text-xs text-slate-500 font-medium">{s.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Recent assignments */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold text-[#0f172a]">Recent Assignments</h3>
+          <button
+            onClick={() => onNavigate("assignments")}
+            className="text-sm font-semibold transition-colors"
+            style={{ color: "var(--accent)" }}
+          >
+            View All →
+          </button>
+        </div>
+        {recent.length === 0 ? (
+          <div className="rounded-2xl p-8 text-center text-slate-400" style={{ border: "2px dashed var(--border)" }}>
+            No assignments yet. Check back soon!
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {recent.map((a) => (
+              <AssignmentCard key={a.id} a={a} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Quick access */}
+      <div>
+        <h3 className="font-semibold text-[#0f172a] mb-3">Quick Access</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {quickLinks.map((q) => (
+            <button
+              key={q.label}
+              onClick={() => onNavigate(q.page)}
+              className="rounded-2xl px-4 py-4 text-center transition-all hover:scale-[1.02]"
+              style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+            >
+              <span className="text-2xl block mb-1">{q.icon}</span>
+              <span className="text-sm font-medium text-[#0f172a]">{q.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
 // Student Dashboard
 // ──────────────────────────────────────────────
 function StudentDashboard({ user, assignments, onLogout }: {
@@ -1057,7 +1158,7 @@ function StudentDashboard({ user, assignments, onLogout }: {
   assignments: Assignment[];
   onLogout: () => void;
 }) {
-  const [page, setPage] = useState<Page>("assignments");
+  const [page, setPage] = useState<Page>("home");
   const [collapsed, setCollapsed] = useState(false);
   const [filter, setFilter] = useState("All");
 
@@ -1101,6 +1202,7 @@ function StudentDashboard({ user, assignments, onLogout }: {
         </div>
 
         <div className="p-6">
+          {page === "home" && <StudentHome user={user} assignments={assignments} onNavigate={setPage} />}
           {page === "assignments" && (
             <div>
               {/* Stats */}
