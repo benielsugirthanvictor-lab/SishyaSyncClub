@@ -30,5 +30,11 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow write: if isTeacher();
     }
+
+    // Any signed-in user can view notices; only teachers can create/update/delete them.
+    match /notices/{id} {
+      allow read: if request.auth != null;
+      allow write: if isTeacher();
+    }
   }
 }

@@ -40,6 +40,15 @@ export interface Assignment {
   dueDate: string;
 }
 
+export interface Notice {
+  id: string;
+  title: string;
+  content: string;
+  postedBy: string;
+  postedAt: string;
+  status: "draft" | "published";
+}
+
 export interface UserProfile {
   uid: string;
   name: string;
@@ -195,4 +204,42 @@ export async function addAssignment(data: Omit<Assignment, "id">): Promise<void>
 export async function deleteAssignment(id: string): Promise<void> {
   const firestore = requireDb();
   await deleteDoc(doc(firestore, "assignments", id));
+}
+
+// ──────────────────────────────────────────────
+// Notices
+// ──────────────────────────────────────────────
+export function watchNotices(onChange: (notices: Notice[]) => void): () => void {
+  const firestore = requireDb();
+  const q = query(collection(firestore, "notices"), orderBy("postedAt", "desc"));
+  return onSnapshot(q, (snap) => {
+    onChange(
+      snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          title: data.title ?? "",
+          content: data.content ?? "",
+          postedBy: data.postedBy ?? "",
+          postedAt: data.postedAt ?? new Date().toISOString(),
+          status: (data.status as "draft" | "published") ?? "draft",
+        };
+      }),
+    );
+  });
+}
+
+export async function addNotice(data: Omit<Notice, "id">): Promise<void> {
+  const firestore = requireDb();
+  await addDoc(collection(firestore, "notices"), data);
+}
+
+export async function updateNotice(id: string, data: Partial<Omit<Notice, "id">>): Promise<void> {
+  const firestore = requireDb();
+  await setDoc(doc(firestore, "notices", id), data, { merge: true });
+}
+
+export async function deleteNotice(id: string): Promise<void> {
+  const firestore = requireDb();
+  await deleteDoc(doc(firestore, "notices", id));
 }

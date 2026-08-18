@@ -8,15 +8,20 @@ import {
 import { auth, firebaseConfigured } from "./lib/firebase";
 import {
   addAssignment,
+  addNotice,
   createStudentAccount,
   deleteAssignment,
+  deleteNotice,
   deleteStudent,
   getUserProfile,
   resolveLoginIdentifier,
   STUDENT_TYPES,
+  updateNotice,
   watchAssignments,
+  watchNotices,
   watchStudents,
   type Assignment,
+  type Notice,
   type Role,
   type Student,
   type StudentType,
@@ -936,6 +941,345 @@ function StudentsPage({
 }
 
 // ──────────────────────────────────────────────
+// Notice Card
+// ──────────────────────────────────────────────
+function NoticeCard({ notice, canDelete, canEdit, onDelete, onEdit }: { notice: Notice; canDelete?: boolean; canEdit?: boolean; onDelete?: (id: string) => void; onEdit?: (id: string, data: Partial<Omit<Notice, "id">>) => void }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedTitle, setEditedTitle] = useState(notice.title);
+  const [editedContent, setEditedContent] = useState(notice.content);
+
+  async function handleSave() {
+    if (editedTitle.trim() && editedContent.trim()) {
+      await onEdit?.(notice.id, { title: editedTitle, content: editedContent });
+      setIsEditing(false);
+    }
+  }
+
+  return (
+    <div
+      className="rounded-2xl p-5 flex flex-col gap-3 transition-shadow hover:shadow-md"
+      style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            <span
+              className="text-xs font-semibold px-2 py-0.5 rounded-full"
+              style={
+                notice.status === "draft"
+                  ? { background: "#fef3c7", color: "#92400e" }
+                  : { background: "#dcfce7", color: "#166534" }
+              }
+            >
+              {notice.status === "draft" ? "📝 Draft" : "📢 Published"}
+            </span>
+          </div>
+          {!isEditing ? (
+            <>
+              <h3 className="font-semibold text-[#0f172a] text-base leading-snug">{notice.title}</h3>
+              <p className="text-sm text-slate-600 leading-relaxed mt-2 line-clamp-3">{notice.content}</p>
+            </>
+          ) : (
+            <>
+              <input
+                type="text"
+                value={editedTitle}
+                onChange={(e) => setEditedTitle(e.target.value)}
+                placeholder="Notice title…"
+                className="w-full px-3 py-2 rounded-lg border text-sm outline-none mb-2 transition-all"
+                style={{ border: "1px solid var(--border)", background: "var(--background)" }}
+              />
+              <textarea
+                rows={3}
+                value={editedContent}
+                onChange={(e) => setEditedContent(e.target.value)}
+                placeholder="Notice content…"
+                className="w-full px-3 py-2 rounded-lg border text-sm outline-none resize-none transition-all"
+                style={{ border: "1px solid var(--border)", background: "var(--background)" }}
+              />
+            </>
+          )}
+        </div>
+        {(canDelete || canEdit) && (
+          <div className="flex gap-2 shrink-0">
+            {canEdit && (
+              <button
+                onClick={() => (isEditing ? handleSave() : setIsEditing(true))}
+                className="text-slate-400 hover:text-blue-500 transition-colors"
+              >
+                {isEditing ? (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                ) : (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                  </svg>
+                )}
+              </button>
+            )}
+            {canDelete && (
+              <button
+                onClick={() => {
+                  if (isEditing) setIsEditing(false);
+                  onDelete?.(notice.id);
+                }}
+                className="text-slate-400 hover:text-rose-500 transition-colors"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4h6v2" />
+                </svg>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between text-xs text-slate-400 pt-1 border-t" style={{ borderColor: "var(--border)" }}>
+        <span>By {notice.postedBy}</span>
+        <span>{timeAgo(notice.postedAt)}</span>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Student Notices Page
+// ──────────────────────────────────────────────
+function StudentNoticesPage({ notices }: { notices: Notice[] }) {
+  const published = notices.filter((n) => n.status === "published");
+
+  return (
+    <div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+        {[
+          { label: "Total Notices", value: published.length, color: "#1e3a5f" },
+          { label: "This Week", value: published.filter((n) => {
+            const d = new Date(n.postedAt);
+            return Date.now() - d.getTime() < 7 * 86400000;
+          }).length, color: "#0ea5e9" },
+          { label: "This Month", value: published.filter((n) => {
+            const d = new Date(n.postedAt);
+            return Date.now() - d.getTime() < 30 * 86400000;
+          }).length, color: "#7c3aed" },
+        ].map((s) => (
+          <div key={s.label} className="rounded-2xl px-4 py-3" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+            <p className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</p>
+            <p className="text-xs text-slate-500 font-medium">{s.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {published.length === 0 ? (
+        <div className="rounded-2xl p-10 text-center text-slate-400" style={{ border: "2px dashed var(--border)" }}>
+          No notices yet. Check back soon!
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4">
+          {published.map((notice) => (
+            <NoticeCard key={notice.id} notice={notice} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Teacher Notice Management Page
+// ──────────────────────────────────────────────
+function TeacherNoticesPage({
+  notices,
+  onAddNotice,
+  onUpdateNotice,
+  onDeleteNotice,
+  userName,
+}: {
+  notices: Notice[];
+  onAddNotice: (data: Omit<Notice, "id">) => Promise<void>;
+  onUpdateNotice: (id: string, data: Partial<Omit<Notice, "id">>) => Promise<void>;
+  onDeleteNotice: (id: string) => Promise<void>;
+  userName: string;
+}) {
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [status, setStatus] = useState<"draft" | "published">("draft");
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handlePost(e: React.FormEvent) {
+    e.preventDefault();
+    if (!title.trim() || !content.trim()) {
+      setError("Title and content are required.");
+      return;
+    }
+    setError("");
+    try {
+      await onAddNotice({
+        title: title.trim(),
+        content: content.trim(),
+        postedBy: userName,
+        postedAt: new Date().toISOString(),
+        status,
+      });
+      setTitle("");
+      setContent("");
+      setStatus("draft");
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to post notice.");
+    }
+  }
+
+  const drafts = notices.filter((n) => n.status === "draft");
+  const published = notices.filter((n) => n.status === "published");
+
+  return (
+    <div>
+      {/* Form */}
+      <div className="rounded-2xl p-6 mb-6" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+        <h2 className="font-display text-xl text-[#1e3a5f] mb-5">Post New Notice</h2>
+        <form onSubmit={handlePost} className="flex flex-col gap-4">
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Title</label>
+            <input
+              required
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Notice title…"
+              className="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all"
+              style={{ border: "1px solid var(--border)", background: "var(--background)" }}
+              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--accent)")}
+              onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Content</label>
+            <textarea
+              required
+              rows={5}
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="Write your notice here…"
+              className="w-full px-4 py-3 rounded-xl border text-sm outline-none resize-none transition-all"
+              style={{ border: "1px solid var(--border)", background: "var(--background)" }}
+              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--accent)")}
+              onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Status</label>
+            <div className="flex gap-2">
+              {(["draft", "published"] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setStatus(s)}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold transition-all"
+                  style={
+                    status === s
+                      ? { background: "var(--primary)", color: "white" }
+                      : { background: "var(--secondary)", color: "var(--secondary-foreground)" }
+                  }
+                >
+                  {s === "draft" ? "📝 Save as Draft" : "📢 Publish"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {error && (
+            <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 px-3 py-2 rounded-lg">
+              {error}
+            </p>
+          )}
+
+          <div className="flex items-center gap-4 mt-1">
+            <button
+              type="submit"
+              className="px-6 py-3 rounded-xl font-semibold text-sm text-white transition-all hover:opacity-90 flex items-center gap-2"
+              style={{ background: "var(--primary)" }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+              </svg>
+              Post Notice
+            </button>
+
+            {success && (
+              <span className="text-sm font-medium text-emerald-600 flex items-center gap-1.5">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                Posted successfully!
+              </span>
+            )}
+          </div>
+        </form>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+        {[
+          { label: "Drafts", value: drafts.length, color: "#f59e0b" },
+          { label: "Published", value: published.length, color: "#10b981" },
+        ].map((s) => (
+          <div key={s.label} className="rounded-2xl px-4 py-3" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+            <p className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</p>
+            <p className="text-xs text-slate-500 font-medium">{s.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Drafts */}
+      {drafts.length > 0 && (
+        <div className="mb-8">
+          <h3 className="font-semibold text-[#0f172a] mb-3">Draft Notices</h3>
+          <div className="grid grid-cols-1 gap-4">
+            {drafts.map((notice) => (
+              <NoticeCard
+                key={notice.id}
+                notice={notice}
+                canEdit
+                canDelete
+                onEdit={onUpdateNotice}
+                onDelete={onDeleteNotice}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Published */}
+      {published.length > 0 && (
+        <div>
+          <h3 className="font-semibold text-[#0f172a] mb-3">Published Notices</h3>
+          <div className="grid grid-cols-1 gap-4">
+            {published.map((notice) => (
+              <NoticeCard
+                key={notice.id}
+                notice={notice}
+                canDelete
+                onDelete={onDeleteNotice}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {notices.length === 0 && (
+        <div className="rounded-2xl p-10 text-center text-slate-400" style={{ border: "2px dashed var(--border)" }}>
+          No notices yet. Create your first notice above!
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
 // Placeholder pages
 // ──────────────────────────────────────────────
 function PlaceholderPage({ title, icon }: { title: string; icon: string }) {
@@ -955,17 +1299,25 @@ function TeacherDashboard({
   user,
   assignments,
   students,
+  notices,
   onPost,
   onDeleteAssignment,
   onDeleteStudent,
+  onAddNotice,
+  onUpdateNotice,
+  onDeleteNotice,
   onLogout,
 }: {
   user: UserProfile;
   assignments: Assignment[];
   students: Student[];
+  notices: Notice[];
   onPost: (a: Omit<Assignment, "id">) => void;
   onDeleteAssignment: (id: string) => void;
   onDeleteStudent: (id: string, uid?: string) => void;
+  onAddNotice: (data: Omit<Notice, "id">) => Promise<void>;
+  onUpdateNotice: (id: string, data: Partial<Omit<Notice, "id">>) => Promise<void>;
+  onDeleteNotice: (id: string) => Promise<void>;
   onLogout: () => void;
 }) {
   const [page, setPage] = useState<Page>("assignments");
@@ -1048,7 +1400,15 @@ function TeacherDashboard({
             />
           )}
           {page === "schedule" && <PlaceholderPage title="Schedule" icon="📅" />}
-          {page === "notices" && <PlaceholderPage title="Notices" icon="🔔" />}
+          {page === "notices" && (
+            <TeacherNoticesPage
+              notices={notices}
+              onAddNotice={onAddNotice}
+              onUpdateNotice={onUpdateNotice}
+              onDeleteNotice={onDeleteNotice}
+              userName={user.name}
+            />
+          )}
           {page === "profile" && <PlaceholderPage title="Profile" icon="👤" />}
         </div>
       </main>
@@ -1153,9 +1513,10 @@ function StudentHome({ user, assignments, onNavigate }: {
 // ──────────────────────────────────────────────
 // Student Dashboard
 // ──────────────────────────────────────────────
-function StudentDashboard({ user, assignments, onLogout }: {
+function StudentDashboard({ user, assignments, notices, onLogout }: {
   user: UserProfile;
   assignments: Assignment[];
+  notices: Notice[];
   onLogout: () => void;
 }) {
   const [page, setPage] = useState<Page>("home");
@@ -1256,7 +1617,7 @@ function StudentDashboard({ user, assignments, onLogout }: {
           )}
           {page === "students" && <PlaceholderPage title="Classmates" icon="👥" />}
           {page === "schedule" && <PlaceholderPage title="Schedule" icon="📅" />}
-          {page === "notices" && <PlaceholderPage title="Notices" icon="🔔" />}
+          {page === "notices" && <StudentNoticesPage notices={notices} />}
           {page === "profile" && <PlaceholderPage title="Profile" icon="👤" />}
         </div>
       </main>
@@ -1338,6 +1699,7 @@ export default function App() {
   const [roleLoading, setRoleLoading] = useState(false);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
+  const [notices, setNotices] = useState<Notice[]>([]);
 
   useEffect(() => {
     if (!auth) return;
@@ -1373,9 +1735,11 @@ export default function App() {
     if (!profile) return;
     const unsubStudents = watchStudents(setStudents);
     const unsubAssignments = watchAssignments(setAssignments);
+    const unsubNotices = watchNotices(setNotices);
     return () => {
       unsubStudents();
       unsubAssignments();
+      unsubNotices();
     };
   }, [profile]);
 
@@ -1406,6 +1770,33 @@ export default function App() {
     }
   }
 
+  async function handleAddNotice(data: Omit<Notice, "id">) {
+    try {
+      await addNotice(data);
+    } catch (err) {
+      console.error(err);
+      alert("Could not post the notice. Please try again.");
+    }
+  }
+
+  async function handleUpdateNotice(id: string, data: Partial<Omit<Notice, "id">>) {
+    try {
+      await updateNotice(id, data);
+    } catch (err) {
+      console.error(err);
+      alert("Could not update the notice. Please try again.");
+    }
+  }
+
+  async function handleDeleteNotice(id: string) {
+    try {
+      await deleteNotice(id);
+    } catch (err) {
+      console.error(err);
+      alert("Could not delete the notice. Please try again.");
+    }
+  }
+
   async function handleLogout() {
     if (auth) await signOut(auth);
   }
@@ -1432,9 +1823,13 @@ export default function App() {
         user={profile}
         assignments={assignments}
         students={students}
+        notices={notices}
         onPost={handlePost}
         onDeleteAssignment={handleDeleteAssignment}
         onDeleteStudent={handleDeleteStudent}
+        onAddNotice={handleAddNotice}
+        onUpdateNotice={handleUpdateNotice}
+        onDeleteNotice={handleDeleteNotice}
         onLogout={handleLogout}
       />
     );
@@ -1444,6 +1839,7 @@ export default function App() {
     <StudentDashboard
       user={profile}
       assignments={assignments}
+      notices={notices}
       onLogout={handleLogout}
     />
   );
