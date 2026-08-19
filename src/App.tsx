@@ -9,9 +9,11 @@ import { auth, firebaseConfigured } from "./lib/firebase";
 import {
   addAssignment,
   addNotice,
+  addSchedule,
   createStudentAccount,
   deleteAssignment,
   deleteNotice,
+  deleteSchedule,
   deleteStudent,
   getUserProfile,
   resolveLoginIdentifier,
@@ -19,10 +21,12 @@ import {
   updateNotice,
   watchAssignments,
   watchNotices,
+  watchSchedules,
   watchStudents,
   type Assignment,
   type Notice,
   type Role,
+  type Schedule,
   type Student,
   type StudentType,
   type UserProfile,
@@ -1048,6 +1052,7 @@ function NoticeCard({ notice, canDelete, canEdit, onDelete, onEdit }: { notice: 
 // ──────────────────────────────────────────────
 function StudentNoticesPage({ notices }: { notices: Notice[] }) {
   const published = notices.filter((n) => n.status === "published");
+  const [acknowledged, setAcknowledged] = useState<Set<string>>(new Set());
 
   return (
     <div>
@@ -1076,9 +1081,32 @@ function StudentNoticesPage({ notices }: { notices: Notice[] }) {
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4">
-          {published.map((notice) => (
-            <NoticeCard key={notice.id} notice={notice} />
-          ))}
+          {published.map((notice) => {
+            const isAck = acknowledged.has(notice.id);
+            return (
+              <div key={notice.id}>
+                <NoticeCard notice={notice} />
+                <div className="mt-2 flex justify-end">
+                  {isAck ? (
+                    <span className="text-xs font-medium text-emerald-600 flex items-center gap-1.5 px-3 py-1.5 rounded-lg" style={{ background: "#dcfce7" }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                      Okay
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => setAcknowledged((prev) => new Set(prev).add(notice.id))}
+                      className="text-xs font-semibold px-4 py-1.5 rounded-lg transition-all hover:opacity-90"
+                      style={{ background: "var(--primary)", color: "white" }}
+                    >
+                      Okay
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -1300,24 +1328,30 @@ function TeacherDashboard({
   assignments,
   students,
   notices,
+  schedules,
   onPost,
   onDeleteAssignment,
   onDeleteStudent,
   onAddNotice,
   onUpdateNotice,
   onDeleteNotice,
+  onAddSchedule,
+  onDeleteSchedule,
   onLogout,
 }: {
   user: UserProfile;
   assignments: Assignment[];
   students: Student[];
   notices: Notice[];
+  schedules: Schedule[];
   onPost: (a: Omit<Assignment, "id">) => void;
   onDeleteAssignment: (id: string) => void;
   onDeleteStudent: (id: string, uid?: string) => void;
   onAddNotice: (data: Omit<Notice, "id">) => Promise<void>;
   onUpdateNotice: (id: string, data: Partial<Omit<Notice, "id">>) => Promise<void>;
   onDeleteNotice: (id: string) => Promise<void>;
+  onAddSchedule: (data: Omit<Schedule, "id">) => Promise<void>;
+  onDeleteSchedule: (id: string) => Promise<void>;
   onLogout: () => void;
 }) {
   const [page, setPage] = useState<Page>("assignments");
@@ -1399,7 +1433,14 @@ function TeacherDashboard({
               onDeleteStudent={onDeleteStudent}
             />
           )}
-          {page === "schedule" && <PlaceholderPage title="Schedule" icon="📅" />}
+          {page === "schedule" && (
+            <TeacherSchedulePage
+              schedules={schedules}
+              onAddSchedule={onAddSchedule}
+              onDeleteSchedule={onDeleteSchedule}
+              userName={user.name}
+            />
+          )}
           {page === "notices" && (
             <TeacherNoticesPage
               notices={notices}
@@ -1437,10 +1478,8 @@ function StudentHome({ user, assignments, onNavigate }: {
   ];
 
   const quickLinks: { label: string; icon: string; page: Page }[] = [
-    { label: "All Assignments", icon: "📚", page: "assignments" },
     { label: "Schedule", icon: "📅", page: "schedule" },
     { label: "Notices", icon: "🔔", page: "notices" },
-    { label: "Profile", icon: "👤", page: "profile" },
   ];
 
   return (
@@ -1511,12 +1550,337 @@ function StudentHome({ user, assignments, onNavigate }: {
 }
 
 // ──────────────────────────────────────────────
+// Student Schedule Page (Calendar + Notices)
+// ──────────────────────────────────────────────
+function StudentSchedulePage({ schedules, notices }: { schedules: Schedule[]; notices: Notice[] }) {
+  const published = notices.filter((n) => n.status === "published");
+  const today = new Date();
+  const [viewYear, setViewYear] = useState(today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(today.getMonth());
+  const [selectedDate, setSelectedDate] = useState<string>("");
+
+  const monthName = new Date(viewYear, viewMonth).toLocaleString("en-IN", { month: "long", year: "numeric" });
+  const firstDay = new Date(viewYear, viewMonth, 1).getDay();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+
+  const scheduleDates = new Set(schedules.map((s) => s.date));
+  const selectedSchedules = selectedDate ? schedules.filter((s) => s.date === selectedDate) : [];
+
+  function prevMonth() {
+    if (viewMonth === 0) { setViewMonth(11); setViewYear((y) => y - 1); }
+    else setViewMonth((m) => m - 1);
+  }
+  function nextMonth() {
+    if (viewMonth === 11) { setViewMonth(0); setViewYear((y) => y + 1); }
+    else setViewMonth((m) => m + 1);
+  }
+
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-6">
+      {/* Left: Calendar */}
+      <div>
+        <div className="rounded-2xl p-6" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+          <div className="flex items-center justify-between mb-4">
+            <button onClick={prevMonth} className="p-2 rounded-lg hover:bg-slate-100 transition-colors">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+            </button>
+            <h3 className="font-display text-lg text-[#1e3a5f]">{monthName}</h3>
+            <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-slate-100 transition-colors">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-7 gap-1 mb-2">
+            {days.map((d) => (
+              <div key={d} className="text-center text-xs font-semibold text-slate-400 py-1">{d}</div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7 gap-1">
+            {Array.from({ length: firstDay }).map((_, i) => <div key={`empty-${i}`} />)}
+            {Array.from({ length: daysInMonth }).map((_, i) => {
+              const day = i + 1;
+              const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+              const hasSchedule = scheduleDates.has(dateStr);
+              const isSelected = selectedDate === dateStr;
+              const isToday = day === today.getDate() && viewMonth === today.getMonth() && viewYear === today.getFullYear();
+
+              return (
+                <button
+                  key={day}
+                  onClick={() => setSelectedDate(dateStr)}
+                  className="relative rounded-lg py-2 text-sm font-medium transition-all"
+                  style={{
+                    background: isSelected ? "var(--primary)" : isToday ? "rgba(14,165,233,0.1)" : "transparent",
+                    color: isSelected ? "white" : isToday ? "#0ea5e9" : "#0f172a",
+                  }}
+                >
+                  {day}
+                  {hasSchedule && (
+                    <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full" style={{ background: isSelected ? "white" : "#0ea5e9" }} />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {selectedDate && selectedSchedules.length > 0 && (
+          <div className="mt-4 rounded-2xl p-5" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+            <h4 className="font-semibold text-[#0f172a] mb-3">
+              Schedule for {new Date(selectedDate + "T00:00:00").toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}
+            </h4>
+            <div className="flex flex-col gap-2">
+              {selectedSchedules.map((s) => (
+                <div key={s.id} className="rounded-xl px-4 py-3" style={{ background: "var(--background)", border: "1px solid var(--border)" }}>
+                  <p className="font-medium text-sm text-[#0f172a]">{s.title}</p>
+                  <p className="text-xs text-slate-400 mt-1">Posted by {s.postedBy}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {selectedDate && selectedSchedules.length === 0 && (
+          <div className="mt-4 rounded-2xl p-5 text-center text-slate-400 text-sm" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+            No schedules for this date.
+          </div>
+        )}
+      </div>
+
+      {/* Right: Notices */}
+      <div>
+        <h3 className="font-semibold text-[#0f172a] mb-3">Recent Notices</h3>
+        {published.length === 0 ? (
+          <div className="rounded-2xl p-8 text-center text-slate-400" style={{ border: "2px dashed var(--border)" }}>
+            No notices yet.
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {published.slice(0, 6).map((notice) => (
+              <NoticeCard key={notice.id} notice={notice} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Teacher Schedule Page (Add + List)
+// ──────────────────────────────────────────────
+function TeacherSchedulePage({
+  schedules,
+  onAddSchedule,
+  onDeleteSchedule,
+  userName,
+}: {
+  schedules: Schedule[];
+  onAddSchedule: (data: Omit<Schedule, "id">) => Promise<void>;
+  onDeleteSchedule: (id: string) => Promise<void>;
+  userName: string;
+}) {
+  const [title, setTitle] = useState("");
+  const [date, setDate] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!title.trim() || !date) {
+      setError("Title and date are required.");
+      return;
+    }
+    setError("");
+    setLoading(true);
+    try {
+      await onAddSchedule({
+        title: title.trim(),
+        date,
+        postedBy: userName,
+        postedAt: new Date().toISOString(),
+      });
+      setTitle("");
+      setDate("");
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add schedule.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const today = new Date();
+  const [viewYear, setViewYear] = useState(today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(today.getMonth());
+  const monthName = new Date(viewYear, viewMonth).toLocaleString("en-IN", { month: "long", year: "numeric" });
+  const firstDay = new Date(viewYear, viewMonth, 1).getDay();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const scheduleDates = new Set(schedules.map((s) => s.date));
+
+  function prevMonth() {
+    if (viewMonth === 0) { setViewMonth(11); setViewYear((y) => y - 1); }
+    else setViewMonth((m) => m - 1);
+  }
+  function nextMonth() {
+    if (viewMonth === 11) { setViewMonth(0); setViewYear((y) => y + 1); }
+    else setViewMonth((m) => m + 1);
+  }
+
+  function pickDate(day: number) {
+    const d = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    setDate(d);
+  }
+
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-6">
+      {/* Left: Add Schedule Form + Calendar */}
+      <div>
+        <div className="rounded-2xl p-6 mb-6" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+          <h2 className="font-display text-xl text-[#1e3a5f] mb-5">Add Schedule</h2>
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Heading</label>
+              <input
+                required
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Schedule heading…"
+                className="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all"
+                style={{ border: "1px solid var(--border)", background: "var(--background)" }}
+                onFocus={(e) => (e.currentTarget.style.borderColor = "var(--accent)")}
+                onBlur={(e) => (e.currentTarget.style.border = "1px solid var(--border)")}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">Select Date</label>
+              <div className="rounded-xl p-4" style={{ background: "var(--background)", border: "1px solid var(--border)" }}>
+                <div className="flex items-center justify-between mb-3">
+                  <button type="button" onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-slate-200 transition-colors">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+                  </button>
+                  <span className="text-sm font-semibold text-[#1e3a5f]">{monthName}</span>
+                  <button type="button" onClick={nextMonth} className="p-1.5 rounded-lg hover:bg-slate-200 transition-colors">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+                  </button>
+                </div>
+                <div className="grid grid-cols-7 gap-1 mb-1">
+                  {days.map((d) => (
+                    <div key={d} className="text-center text-[10px] font-semibold text-slate-400 py-0.5">{d}</div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-7 gap-1">
+                  {Array.from({ length: firstDay }).map((_, i) => <div key={`e-${i}`} />)}
+                  {Array.from({ length: daysInMonth }).map((_, i) => {
+                    const day = i + 1;
+                    const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                    const isSelected = date === dateStr;
+                    const hasSchedule = scheduleDates.has(dateStr);
+                    return (
+                      <button
+                        type="button"
+                        key={day}
+                        onClick={() => pickDate(day)}
+                        className="relative rounded-lg py-1.5 text-xs font-medium transition-all"
+                        style={{
+                          background: isSelected ? "var(--primary)" : "transparent",
+                          color: isSelected ? "white" : "#0f172a",
+                        }}
+                      >
+                        {day}
+                        {hasSchedule && !isSelected && (
+                          <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-sky-500" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              {date && (
+                <p className="text-xs text-slate-500 mt-2">
+                  Selected: <span className="font-semibold text-[#0f172a]">{new Date(date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</span>
+                </p>
+              )}
+            </div>
+
+            {error && (
+              <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 px-3 py-2 rounded-lg">{error}</p>
+            )}
+
+            <div className="flex items-center gap-4 mt-1">
+              <button
+                type="submit"
+                disabled={loading}
+                className="px-6 py-3 rounded-xl font-semibold text-sm text-white transition-all hover:opacity-90 flex items-center gap-2"
+                style={{ background: "var(--primary)" }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                {loading ? "Adding…" : "Add Schedule"}
+              </button>
+              {success && (
+                <span className="text-sm font-medium text-emerald-600 flex items-center gap-1.5">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  Added!
+                </span>
+              )}
+            </div>
+          </form>
+        </div>
+      </div>
+
+      {/* Right: Existing Schedules */}
+      <div>
+        <h3 className="font-semibold text-[#0f172a] mb-3">Scheduled ({schedules.length})</h3>
+        {schedules.length === 0 ? (
+          <div className="rounded-2xl p-8 text-center text-slate-400" style={{ border: "2px dashed var(--border)" }}>
+            No schedules yet.
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {schedules.map((s) => (
+              <div key={s.id} className="rounded-xl px-4 py-3 flex items-start justify-between gap-3" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+                <div>
+                  <p className="font-medium text-sm text-[#0f172a]">{s.title}</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    📅 {new Date(s.date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
+                  </p>
+                </div>
+                <button
+                  onClick={() => onDeleteSchedule(s.id)}
+                  className="shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-colors"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
 // Student Dashboard
 // ──────────────────────────────────────────────
-function StudentDashboard({ user, assignments, notices, onLogout }: {
+function StudentDashboard({ user, assignments, notices, schedules, onLogout }: {
   user: UserProfile;
   assignments: Assignment[];
   notices: Notice[];
+  schedules: Schedule[];
   onLogout: () => void;
 }) {
   const [page, setPage] = useState<Page>("home");
@@ -1616,7 +1980,7 @@ function StudentDashboard({ user, assignments, notices, onLogout }: {
             </div>
           )}
           {page === "students" && <PlaceholderPage title="Classmates" icon="👥" />}
-          {page === "schedule" && <PlaceholderPage title="Schedule" icon="📅" />}
+          {page === "schedule" && <StudentSchedulePage schedules={schedules} notices={notices} />}
           {page === "notices" && <StudentNoticesPage notices={notices} />}
           {page === "profile" && <PlaceholderPage title="Profile" icon="👤" />}
         </div>
@@ -1700,6 +2064,7 @@ export default function App() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [notices, setNotices] = useState<Notice[]>([]);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
 
   useEffect(() => {
     if (!auth) return;
@@ -1736,10 +2101,12 @@ export default function App() {
     const unsubStudents = watchStudents(setStudents);
     const unsubAssignments = watchAssignments(setAssignments);
     const unsubNotices = watchNotices(setNotices);
+    const unsubSchedules = watchSchedules(setSchedules);
     return () => {
       unsubStudents();
       unsubAssignments();
       unsubNotices();
+      unsubSchedules();
     };
   }, [profile]);
 
@@ -1797,6 +2164,24 @@ export default function App() {
     }
   }
 
+  async function handleAddSchedule(data: Omit<Schedule, "id">) {
+    try {
+      await addSchedule(data);
+    } catch (err) {
+      console.error(err);
+      alert("Could not add the schedule. Please try again.");
+    }
+  }
+
+  async function handleDeleteSchedule(id: string) {
+    try {
+      await deleteSchedule(id);
+    } catch (err) {
+      console.error(err);
+      alert("Could not delete the schedule. Please try again.");
+    }
+  }
+
   async function handleLogout() {
     if (auth) await signOut(auth);
   }
@@ -1824,12 +2209,15 @@ export default function App() {
         assignments={assignments}
         students={students}
         notices={notices}
+        schedules={schedules}
         onPost={handlePost}
         onDeleteAssignment={handleDeleteAssignment}
         onDeleteStudent={handleDeleteStudent}
         onAddNotice={handleAddNotice}
         onUpdateNotice={handleUpdateNotice}
         onDeleteNotice={handleDeleteNotice}
+        onAddSchedule={handleAddSchedule}
+        onDeleteSchedule={handleDeleteSchedule}
         onLogout={handleLogout}
       />
     );
@@ -1840,6 +2228,7 @@ export default function App() {
       user={profile}
       assignments={assignments}
       notices={notices}
+      schedules={schedules}
       onLogout={handleLogout}
     />
   );

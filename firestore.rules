@@ -36,5 +36,11 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow write: if isTeacher();
     }
+
+    // Any signed-in user can view schedules; only teachers can create/delete them.
+    match /schedules/{id} {
+      allow read: if request.auth != null;
+      allow write: if isTeacher();
+    }
   }
 }

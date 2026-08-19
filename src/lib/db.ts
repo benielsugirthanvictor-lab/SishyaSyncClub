@@ -49,6 +49,14 @@ export interface Notice {
   status: "draft" | "published";
 }
 
+export interface Schedule {
+  id: string;
+  title: string;
+  date: string;
+  postedBy: string;
+  postedAt: string;
+}
+
 export interface UserProfile {
   uid: string;
   name: string;
@@ -242,4 +250,36 @@ export async function updateNotice(id: string, data: Partial<Omit<Notice, "id">>
 export async function deleteNotice(id: string): Promise<void> {
   const firestore = requireDb();
   await deleteDoc(doc(firestore, "notices", id));
+}
+
+// ──────────────────────────────────────────────
+// Schedules
+// ──────────────────────────────────────────────
+export function watchSchedules(onChange: (schedules: Schedule[]) => void): () => void {
+  const firestore = requireDb();
+  const q = query(collection(firestore, "schedules"), orderBy("date", "desc"));
+  return onSnapshot(q, (snap) => {
+    onChange(
+      snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          title: data.title ?? "",
+          date: data.date ?? "",
+          postedBy: data.postedBy ?? "",
+          postedAt: data.postedAt ?? new Date().toISOString(),
+        };
+      }),
+    );
+  });
+}
+
+export async function addSchedule(data: Omit<Schedule, "id">): Promise<void> {
+  const firestore = requireDb();
+  await addDoc(collection(firestore, "schedules"), data);
+}
+
+export async function deleteSchedule(id: string): Promise<void> {
+  const firestore = requireDb();
+  await deleteDoc(doc(firestore, "schedules", id));
 }
