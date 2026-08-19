@@ -10,7 +10,6 @@
     "format": "oxfmt"
   },
   "dependencies": {
-    "@vercel/analytics": "^1.0.0",
     "firebase": "^12.17.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
