@@ -475,7 +475,7 @@ function AssignmentCard({ a, canDelete, onDelete }: { a: Assignment; canDelete?:
                   : { background: "#f0fdf4", color: "#166534" }
               }
             >
-              {a.type === "link" ? "🔗 Link" : "📝 Text"}
+              {a.type === "link" ? "Link" : "Text"}
             </span>
           </div>
           <h3 className="font-semibold text-[#0f172a] text-base leading-snug">{a.title}</h3>
@@ -568,7 +568,7 @@ function PostForm({ onPost, postedBy }: { onPost: (a: Omit<Assignment, "id">) =>
                     : { background: "var(--secondary)", color: "var(--secondary-foreground)" }
                 }
               >
-                {t === "text" ? "📝 Textual" : "🔗 Link"}
+                {t === "text" ? "Textual" : "Link"}
               </button>
             ))}
           </div>
@@ -975,7 +975,7 @@ function NoticeCard({ notice, canDelete, canEdit, onDelete, onEdit }: { notice: 
                   : { background: "#dcfce7", color: "#166534" }
               }
             >
-              {notice.status === "draft" ? "📝 Draft" : "📢 Published"}
+              {notice.status === "draft" ? "Draft" : "Published"}
             </span>
           </div>
           {!isEditing ? (
@@ -1213,7 +1213,7 @@ function TeacherNoticesPage({
                       : { background: "var(--secondary)", color: "var(--secondary-foreground)" }
                   }
                 >
-                  {s === "draft" ? "📝 Save as Draft" : "📢 Publish"}
+                  {s === "draft" ? "Save as Draft" : "Publish"}
                 </button>
               ))}
             </div>
@@ -1310,10 +1310,10 @@ function TeacherNoticesPage({
 // ──────────────────────────────────────────────
 // Placeholder pages
 // ──────────────────────────────────────────────
-function PlaceholderPage({ title, icon }: { title: string; icon: string }) {
+function PlaceholderPage({ title, icon }: { title: string; icon?: string }) {
   return (
     <div className="flex flex-col items-center justify-center h-full min-h-[60vh] gap-4 text-slate-400">
-      <span className="text-5xl">{icon}</span>
+      {icon && <span className="text-5xl">{icon}</span>}
       <p className="font-semibold text-lg text-slate-500">{title}</p>
       <p className="text-sm">This section is coming soon.</p>
     </div>
@@ -1450,7 +1450,7 @@ function TeacherDashboard({
               userName={user.name}
             />
           )}
-          {page === "profile" && <PlaceholderPage title="Profile" icon="👤" />}
+          {page === "profile" && <PlaceholderPage title="Profile" />}
         </div>
       </main>
 
@@ -1477,9 +1477,25 @@ function StudentHome({ user, assignments, onNavigate }: {
     { label: "Text", value: assignments.filter((a) => a.type === "text").length, color: "#059669" },
   ];
 
-  const quickLinks: { label: string; icon: string; page: Page }[] = [
-    { label: "Schedule", icon: "📅", page: "schedule" },
-    { label: "Notices", icon: "🔔", page: "notices" },
+  const quickLinks: { label: string; icon: React.ReactElement; page: Page }[] = [
+    {
+      label: "Schedule",
+      icon: (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+        </svg>
+      ),
+      page: "schedule",
+    },
+    {
+      label: "Notices",
+      icon: (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" />
+        </svg>
+      ),
+      page: "notices",
+    },
   ];
 
   return (
@@ -1539,7 +1555,7 @@ function StudentHome({ user, assignments, onNavigate }: {
               className="rounded-2xl px-4 py-4 text-center transition-all hover:scale-[1.02]"
               style={{ background: "var(--card)", border: "1px solid var(--border)" }}
             >
-              <span className="text-2xl block mb-1">{q.icon}</span>
+              <span className="block mb-1 text-slate-600">{q.icon}</span>
               <span className="text-sm font-medium text-[#0f172a]">{q.label}</span>
             </button>
           ))}
@@ -1853,7 +1869,7 @@ function TeacherSchedulePage({
                 <div>
                   <p className="font-medium text-sm text-[#0f172a]">{s.title}</p>
                   <p className="text-xs text-slate-400 mt-1">
-                    📅 {new Date(s.date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
+                    {new Date(s.date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
                   </p>
                 </div>
                 <button
@@ -1979,10 +1995,10 @@ function StudentDashboard({ user, assignments, notices, schedules, onLogout }: {
               )}
             </div>
           )}
-          {page === "students" && <PlaceholderPage title="Classmates" icon="👥" />}
+          {page === "students" && <PlaceholderPage title="Classmates" />}
           {page === "schedule" && <StudentSchedulePage schedules={schedules} notices={notices} />}
           {page === "notices" && <StudentNoticesPage notices={notices} />}
-          {page === "profile" && <PlaceholderPage title="Profile" icon="👤" />}
+          {page === "profile" && <PlaceholderPage title="Profile" />}
         </div>
       </main>
     </div>
@@ -2006,7 +2022,6 @@ function LoadingPage() {
 function SetupNeededPage() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-4 p-8 text-center" style={{ background: "var(--background)" }}>
-      <span className="text-5xl">🔥</span>
       <h1 className="font-display text-2xl text-[#1e3a5f]">Firebase isn't configured yet</h1>
       <p className="text-sm text-slate-500 max-w-md">
         Create a Firebase project, enable Firestore + Email/Password auth, add a web app, and set the{" "}
@@ -2020,7 +2035,6 @@ function SetupNeededPage() {
 function RoleMissingPage({ onLogout }: { onLogout: () => void }) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-4 p-8 text-center" style={{ background: "var(--background)" }}>
-      <span className="text-5xl">🤔</span>
       <h1 className="font-display text-2xl text-[#1e3a5f]">Account not configured</h1>
       <p className="text-sm text-slate-500 max-w-md">
         Your account has no portal role yet. Please contact your teacher or administrator.
